@@ -18,6 +18,15 @@ struct point { //Egy pont a térben
 struct vector { //egy vektor a térben
     double A,B,C;
 };
+struct function {
+		char *expression;
+};
+
+struct function3d {
+		struct function x;
+		struct function y;
+		struct function z;
+};
 struct ray { //egy sugár: egyenesként van definiálva, de gyakran félegyenesként van kezelve
 	struct point p;
     struct vector v;
@@ -27,6 +36,7 @@ struct ray { //egy sugár: egyenesként van definiálva, de gyakran félegyenesk
 struct sphere { //egy gömb a térben
 	double r; //sugár
     struct point p; //középpont
+    struct function3d fv; //középpont függvény
     bool isMirror; //tükör-e a gömb
 };
 struct sphereColl {  //gömb-egyenes metszéspontok
@@ -97,6 +107,12 @@ double v2DAngle(double v1A, double v1B, double v2A, double v2B); //két 2D-s vek
 bool isSuspiciousV(struct vector v); //"gyanús-e" egy vektor (inf érték vagy ilyesmi)
 double strDou(char in[]); //szöveget konvertál double-be
 struct point strCoor(char in[]); //(x,y,z) alakú szöveget konvertál ponttá
+double recursiveParentheses(char af[],double t, int* index); //az eval functhoz kell
+double evalFunctAt(struct function f,double t); //kiszámol egy függvényt t időben
+int isNum(char a); //szám-e a karakter
+struct function3d strFunc3d(char in[]); //stringből 3d függvény
+struct point evalFunction3d(struct function3d f, double t);
+
 char *mapFile; //map file
 
 //globális változók
@@ -122,6 +138,10 @@ bool reset = false; //perspektíva alaphelyzetbe állítása
 int tcount = 11; //ray tracing szálak száma
 struct ray startingMasterRay; //vezérsugár
 bool showPos = false; //pozíció jelzése
+double pollingRate = 10; //input mintavételezési sebessége/sec
+long gt_zero = 0;
+long gt = 0; //global time
+
 
 void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs beállításként értelmezni, és átállítani az annak megfelelő változót
     if (line[0] != '#') {
@@ -151,7 +171,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     if (width == 0 || height == 0) {
                         printf("invalid resolution\n");
                         exit(0);
-                    }                    
+                    }
                     struct ray **tmp = malloc(sizeof(struct ray)*height);
                     for (int i = 0; i < height; i++){
                         tmp[i] = (struct ray *)malloc(sizeof(struct ray)*width);
@@ -178,7 +198,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0; line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     tcount = atoi(tc);
                     if (tcount == 0) {
                         exit(0);
@@ -194,7 +214,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     distance = strDou(tc);
                 }
                 if (strcmp(option,"PixelSize") == 0) {
@@ -207,7 +227,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     perspPixelSize = strDou(tc);
                 }
                 if (strcmp(option,"AmbientLightStrength") == 0) {
@@ -220,7 +240,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     ambientLight = strDou(tc);
                 }
                 if (strcmp(option,"LightSourceStartingPos") == 0) {
@@ -233,7 +253,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     lightSource = strCoor(tc);
                 }
                 if (strcmp(option,"LightSourceStrength") == 0) {
@@ -246,7 +266,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     lsStrength = strDou(tc);
                 }
                 if (strcmp(option,"BackgroundDarkness") == 0) {
@@ -259,7 +279,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     double bdark = strDou(tc);
                     background.r = bdark;
                     background.g = bdark;
@@ -275,7 +295,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0; line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     maxRayReflect = atoi(tc);
                 }
                 if (strcmp(option,"MaxMovementSpeed") == 0) {
@@ -288,7 +308,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     maxSpeed = strDou(tc);
                 }
                 if (strcmp(option,"MaxRotationSpeed") == 0) {
@@ -301,7 +321,7 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     for(i = 0;line[ol] != ';' && line[ol] != '\0'; ol++){
                         tc[i++] = line[ol];
                     }
-                    tc[i] = '\0'; 
+                    tc[i] = '\0';
                     rotSpeed = strDou(tc);
                 }
                 if (strcmp(option,"DefaultStartingPos") == 0) {
@@ -328,6 +348,128 @@ void configure(char line[]){ //az adott szöveget próbálja meg konfigurációs
                     }
                 }
             }
+}
+
+double evalFunctAt(struct function f,double t){
+		int garbage = 0;
+		double result = recursiveParentheses(f.expression,t,&garbage);
+		return result;
+}
+
+struct point evalFunction3d(struct function3d f, double t){
+		double x = evalFunctAt(f.x,t);
+		double y = evalFunctAt(f.y,t);
+		double z = evalFunctAt(f.z,t);
+		struct point p;
+		p.x = x;
+		p.y = y;
+		p.z = z;
+		return p;
+   /* struct point p;
+    p.x = 0;
+    p.y = 0;
+    p.z = 0;
+    return p;*/
+}
+
+int isNum(char a){
+		if (a >= 48 && a <= 57){
+			return 1;
+		} else {
+			return 0;
+		}
+}
+
+double recursiveParentheses(char af[],double t, int* index){
+		int len = strlen(af);
+		char numbuff[200];
+		double numcurr = 0;
+		int numbuffindex = 0;
+    char operation = 'f';
+    int nextsin = 0;
+    int nextcos = 0;
+		for (int i = 0; i <= len; i++){
+        (*index)++;
+				if (isNum(af[i]) || af[i] == '.'){
+						numbuff[numbuffindex++] = af[i];
+				} else {
+            char ic = af[i];
+            double numtmp = 0;
+						if (numbuffindex != 0){
+								numbuff[numbuffindex] = '\0';
+                numtmp = strDou(numbuff);
+								numbuffindex = 0;
+						} else if (af[i] == '('){
+                int jump = 0;
+                numtmp = recursiveParentheses(&af[i+1],t,&jump);
+                i += jump + 1;
+                (*index) += jump + 1;
+            }
+            if (ic == 't'){
+								numtmp = t;
+                if (operation == 'f'){
+                    operation = 't';
+                    numcurr = numtmp;
+                }
+						}
+            if (nextsin){
+                numtmp = sin(numtmp);
+                nextsin = 0;
+            }
+            if (nextcos){
+                numtmp = cos(numtmp);
+                nextcos = 0;
+            }
+            if (af[i] == 's'){
+                nextsin = 1;
+            }
+            if (af[i] == 'c'){
+                nextcos = 1;
+            }
+            if (af[i] != 's' && af[i] != 'c'){
+                if (operation == 'f'){
+                    numcurr = numtmp;
+                }
+                if (operation == '+'){
+                    numcurr += numtmp;
+                }
+                if (operation == '*'){
+                    numcurr = numcurr * numtmp;
+                }
+                if (operation == '-'){
+                    numcurr -= numtmp;
+                }
+                if (operation == '/'){
+                    numcurr = numcurr / numtmp;
+                }
+                if (operation == '^'){
+                    numcurr = pow(numcurr,numtmp);
+                }
+            }
+
+
+            if (af[i] == '+' || af[i] == '-' || af[i] == '*' || af[i] == '/' || af[i] == '^' ){
+                operation = af[i];
+            }
+            if (af[i] == ')'){
+              return numcurr;
+            }
+            if (af[i] == '\0'){
+                return numcurr;
+            }
+				}
+		}
+
+		return 0;
+}
+
+void calcMovements(){
+    for (int i = 0; i < o.scount;i++){
+        struct point np = evalFunction3d(o.s[i].fv,gt);
+        o.s[i].p = np;
+    }
+
+
 }
 
 void init(){ //inizializálás: fájlok beolvasása, tömbök nullázása, dinamikus memória lefoglalása, stb
@@ -381,7 +523,7 @@ void init(){ //inizializálás: fájlok beolvasása, tömbök nullázása, dinam
                     tc[i++] = line[ol];
                 }
                 tc[i] = '\0';
-                spheres[o.scount].p = strCoor(tc);
+                spheres[o.scount].fv = strFunc3d(tc);
                 ol++;
                 for(i = 0;line[ol] != ';' && line[ol] != '|' && line[ol] != '\0';ol++) {
                     tc[i++] = line[ol];
@@ -523,9 +665,12 @@ void *subThread(void* arg){ //ez a szál a nevével ellentétben gyakorlatilag m
     struct timeval ct; //idő lekérésere szolgáló struct
     gettimeofday(&ct,NULL);
     long peTi = ct.tv_sec * (int)1e6 + ct.tv_usec; //perspektíva ideje
+		gt_zero = peTi/1000;
     long reTi; //minden más ideje
+    calcMovements();
     do {
         reTi = ct.tv_sec * (int)1e6 + ct.tv_usec;
+				gt = reTi/1000-gt_zero;
         pthread_join(perspTid,NULL); //bevárjuk a perspektívát
         for (int i = 0; i < tcount; i++) { //itt elindítjuk az összes ray tracing (továbbiakban csak rt) szálat
             struct rtArgs rtm;
@@ -534,9 +679,10 @@ void *subThread(void* arg){ //ez a szál a nevével ellentétben gyakorlatilag m
             struct rtArgs* rt = malloc(sizeof(struct rtArgs));
             *rt = rtm;
             pthread_create(&threadid[i],NULL,rayTracingThread,rt);
-        } 
+        }
         gettimeofday(&ct,NULL);
         long t = ct.tv_sec * (int)1e6 + ct.tv_usec;
+				gt = t/1000 - gt_zero;
         long tmp = peTi;
         peTi = t;
         t = t-tmp;
@@ -548,7 +694,7 @@ void *subThread(void* arg){ //ez a szál a nevével ellentétben gyakorlatilag m
             for (int j = 0; j < width; j++) {
                 if(pixels[i][j].a != 0) pixelRGBA(renderer,j,i,pixels[i][j].r,pixels[i][j].g,pixels[i][j].b,pixels[i][j].a);
             }
-        } 
+        }
         double fpssum = 0;
         for (int i = 0; i < 5; i++) {
             fpssum = fpssum + avgfps[i];
@@ -655,8 +801,9 @@ void *subThread(void* arg){ //ez a szál a nevével ellentétben gyakorlatilag m
             }
             stringRGBA(renderer,width-100,95,copy,255,0,0,255);
         }
-        SDL_RenderPresent(renderer); //renderer kirajzolása
+        SDL_RenderPresent(renderer);//renderer kirajzolása
         pthread_join(perspTid,NULL);
+        calcMovements();
         gettimeofday(&ct,NULL);
         t = ct.tv_sec * (int)1e6 + ct.tv_usec - reTi;
         double persec = (double)t/1000000;
@@ -667,7 +814,7 @@ void *subThread(void* arg){ //ez a szál a nevével ellentétben gyakorlatilag m
         reduced.C = 0; //Ezt a sort kikommentelve az előre haladás követni fogja a vezérsugarat, de így nem tudunk a W vagy az S gombokkal Z irányban elmozdulni (szerintem ez egy jobb írányítási módszer)
         reduced = reduceTo(reduced,currentSpeed.B*persec);
         r.p = transloc(r.p,reduced); //a vezérpontot a jelenlegi sebességgel eltoljuk sugárirányba
-        //jobbra-balra mozgás, A D gombokkal
+        //jobbra-balra forgás, A D gombokkal
         struct vector zt = {0,0,1}; //z tengely
         struct vector animalCrossing = crossProduct(r.v,zt); //keresünk egy sugárra és z tengelyre is merőleges vektort
         if (isNullV(animalCrossing)) {
@@ -699,19 +846,109 @@ void *subThread(void* arg){ //ez a szál a nevével ellentétben gyakorlatilag m
         r.v.A = xyvector.A;
         r.v.B = xyvector.B;
         r.v.C = yzLength * cos(tangle);
-        r.v = reduceTo(r.v,1); //matematikailag helyes lenne, ha az irányvektor hossza nincs 1re beállítva, azonban így a vektor hossza folyamatosan csökkenne, és a double típus határai miatt nagyjából 2 forduló alatt ténylegesen 0 lenne. 
+        r.v = reduceTo(r.v,1); //matematikailag helyes lenne, ha az irányvektor hossza nincs 1re beállítva, azonban így a vektor hossza folyamatosan csökkenne, és a double típus határai miatt nagyjából 2 forduló alatt ténylegesen 0 lenne.
 //        lightSource.x = lightSource.x - 25*(double)t/1000000;
 //        lightSource.y = lightSource.y + 25*(double)t/1000000;
 //        lightSource.z = lightSource.z - 25*(double)t/1000000;
 //        printf("%lf fps\n",1/((double)t/1000000));
         if (reset) { //alaphelyzetbe állítás, R gombbal
             r = startingMasterRay;
-            reset = false; 
+            reset = false;
         }
         if (fpscntr == 5) fpscntr = 0; //ez nem számláló a nevével ellentétben, inkább egy mutató az fps tömb aktuálisan kicserélendő elemére
     } while(!sigterm);
     pthread_join(perspTid,NULL); //bevárjuk a perspektíva számoló szálat
     free(threadid); //felszabadítjuk az rt szálaknak lefoglalt memóriát
+}
+
+void *eventThread(void* arg){
+	SDL_Event ev;
+	while (!sigterm){
+			while(SDL_PollEvent(&ev)){
+					if (ev.type == SDL_KEYDOWN){ //itt történik a billentyűzet eventek kezelése
+							switch (ev.key.keysym.sym) {
+									case SDLK_d:
+											currentSpeed.A = maxSpeed;
+											break;
+									case SDLK_a:
+											currentSpeed.A = -1*maxSpeed;
+											break;
+									case SDLK_w:
+											currentSpeed.B = maxSpeed;
+											break;
+									case SDLK_s:
+											currentSpeed.B = -1*maxSpeed;
+											break;
+									case SDLK_SPACE:
+											currentSpeed.C = maxSpeed;
+											break;
+									case SDLK_LSHIFT:
+											currentSpeed.C = -1*maxSpeed;
+											break;
+									case SDLK_LEFT:
+											currRotSpeed.C = rotSpeed;
+											break;
+									case SDLK_RIGHT:
+											currRotSpeed.C = -1*rotSpeed;
+											break;
+									case SDLK_UP:
+											currRotSpeed.A = rotSpeed;
+											break;
+									case SDLK_DOWN:
+											currRotSpeed.A = -1*rotSpeed;
+											break;
+									//nem fontos funkciók
+									case SDLK_f:
+											if (showFPS) showFPS = false; else showFPS = true;
+											break;
+									case SDLK_r:
+											reset = true;
+											break;
+									case SDLK_p:
+											if (showPos) showPos = false; else showPos = true;
+											break;
+							}
+					}
+					if (ev.type == SDL_KEYUP){
+							switch (ev.key.keysym.sym) {
+									case SDLK_d:
+											currentSpeed.A = 0;
+											break;
+									case SDLK_a:
+											currentSpeed.A = 0;
+											break;
+									case SDLK_w:
+											currentSpeed.B = 0;
+											break;
+									case SDLK_s:
+											currentSpeed.B = 0;
+											break;
+									case SDLK_SPACE:
+											currentSpeed.C = 0;
+											break;
+									case SDLK_LSHIFT:
+											currentSpeed.C = 0;
+											break;
+									case SDLK_LEFT:
+											currRotSpeed.C = 0;
+											break;
+									case SDLK_RIGHT:
+											currRotSpeed.C = 0;
+											break;
+									case SDLK_UP:
+											currRotSpeed.A = 0;
+											break;
+									case SDLK_DOWN:
+											currRotSpeed.A = 0;
+											break;
+							}
+					}
+					if (ev.type == SDL_QUIT) {
+							sigterm = true;
+					}
+			}
+			sleep(1/pollingRate);
+	}
 }
 
 int main(int argc, char **arg){ //TODO stabil windows build //TODO objektumok mozgása (Ide írtam azokat a dolgokat, amiket még meg kéne csinálni, ezt a kettőt már nem csináltam meg [a win build nem sikerült sok próbálkozás után, nagyon át kéne írni hozzá sok dolgot, pl szálakat, idő lekérést, stb, az objektumok mozgását pedig már nem volt kedvem megcsinálni{pedig nem lenne sok munka}])
@@ -722,106 +959,27 @@ int main(int argc, char **arg){ //TODO stabil windows build //TODO objektumok mo
     init(); //inicializáljuk a programot (file kezelés, változók beállítása)
     pthread_t threadid; //subthread szála
     pthread_create(&threadid,NULL,subThread,NULL);
-    SDL_Event ev;
-    while (!sigterm){
-        SDL_WaitEvent(&ev);
-        if (ev.type == SDL_KEYDOWN){ //itt történik a billentyűzet eventek kezelése
-            switch (ev.key.keysym.sym) {
-                case SDLK_d:
-                    currentSpeed.A = maxSpeed;
-                    break;
-                case SDLK_a:
-                    currentSpeed.A = -1*maxSpeed;
-                    break;
-                case SDLK_w:
-                    currentSpeed.B = maxSpeed;
-                    break;
-                case SDLK_s:
-                    currentSpeed.B = -1*maxSpeed;
-                    break;
-                case SDLK_SPACE:
-                    currentSpeed.C = maxSpeed;
-                    break;
-                case SDLK_LSHIFT:
-                    currentSpeed.C = -1*maxSpeed;
-                    break;
-                case SDLK_LEFT:
-                    currRotSpeed.C = rotSpeed;
-                    break;
-                case SDLK_RIGHT:
-                    currRotSpeed.C = -1*rotSpeed;
-                    break;
-                case SDLK_UP:
-                    currRotSpeed.A = rotSpeed;
-                    break;
-                case SDLK_DOWN:
-                    currRotSpeed.A = -1*rotSpeed;
-                    break;
-                //nem fontos funkciók
-                case SDLK_f:
-                    if (showFPS) showFPS = false; else showFPS = true;
-                    break;
-                case SDLK_r:
-                    reset = true;
-                    break;
-                case SDLK_p:
-                    if (showPos) showPos = false; else showPos = true;
-                    break;
-            }
-        }
-        if (ev.type == SDL_KEYUP){
-            switch (ev.key.keysym.sym) {
-                case SDLK_d:
-                    currentSpeed.A = 0;
-                    break;
-                case SDLK_a:
-                    currentSpeed.A = 0;
-                    break;
-                case SDLK_w:
-                    currentSpeed.B = 0;
-                    break;
-                case SDLK_s:
-                    currentSpeed.B = 0;
-                    break;
-                case SDLK_SPACE:
-                    currentSpeed.C = 0;
-                    break;
-                case SDLK_LSHIFT:
-                    currentSpeed.C = 0;
-                    break;
-                case SDLK_LEFT:
-                    currRotSpeed.C = 0;
-                    break;
-                case SDLK_RIGHT:
-                    currRotSpeed.C = 0;
-                    break;
-                case SDLK_UP:
-                    currRotSpeed.A = 0;
-                    break;
-                case SDLK_DOWN:
-                    currRotSpeed.A = 0;
-                    break;
-            }
-        }
-        if (ev.type == SDL_QUIT) {
-            sigterm = true;
-            pthread_join(threadid,NULL); //bevárjuk a subthreadet
-            free(pe.r);
-            free(o.s);
-            free(o.pl);
-            free(o.fpl);
-            free(pixels); //néhány dinamikusan lefoglalt változó felszabadítása
-            SDL_Quit();
-            exit(0);
-        }
-    }
-	return 0;
+		pthread_t eventhread;
+		pthread_create(&eventhread,NULL,eventThread,NULL);
+
+		pthread_join(eventhread,NULL);
+		pthread_join(threadid,NULL);
+
+		free(pe.r);
+		free(o.s);
+		free(o.pl);
+		free(o.fpl);
+		free(pixels); //néhány dinamikusan lefoglalt változó felszabadítása
+		SDL_Quit();
+		exit(0);
+		return 0;
 }
 struct sphereColl raySphereCollision(struct ray ray, struct sphere sphere){ //gömb-sugár ütközés
     struct sphereColl m;
-    double xg = sphere.p.x; //g
-    double yg = sphere.p.y; //h
-    double zg = sphere.p.z; //j
+    struct point kp = sphere.p;
+    double xg = kp.x; //g
+    double yg = kp.y; //h
+    double zg = kp.z; //j
     double r = sphere.r;
     double xn = ray.p.x; //c
     double yn = ray.p.y; //v
@@ -896,7 +1054,7 @@ struct sphereColl raySphereCollision(struct ray ray, struct sphere sphere){ //g�
         m.p1.z = m.p2.z;
         m.p2.z = tmp;
     }
-    struct vector radius = pToV(sphere.p,m.p1); //a gömb középpontjától az ütközési pontba mutató vektor
+    struct vector radius = pToV(kp,m.p1); //a gömb középpontjától az ütközési pontba mutató vektor
     struct vector corsa = crossProduct(radius,ray.v); //egy a sugárra és a radius vektorra merőleges vektor
     struct vector crossa = crossProduct(corsa,radius); //ez pedig már az érintő egyenes vektora az ütközési pontban
     m.angle = vAngle(crossa,ray.v); //az egyenes és a gömb felülete által bezárt szög
@@ -996,6 +1154,10 @@ struct rayColl engage (struct ray r){ //ez végzi élesben a sugarak ütköztet�
                                 if(!r.isLight && sc.angle*180/M_PI > 15 && r.reflected <= maxRayReflect) { //ha 15 foknál nagyobb az ütközés, és nem fénysugár (fénysugár nem tud visszatükröződni), és még a fénysugarunk még kevesebbszer tükröződött mint a maximális érték
                                     struct ray mray;
                                     mray.p = sc.p1;
+                                    struct point asdlol;
+                                    asdlol.x = 0;
+                                    asdlol.y = 0;
+                                    asdlol.z = 0;
                                     struct vector mv = reduceTo(pToV(o.s[i].p,sc.p1),vAbs(r.v)*sin(sc.angle));
                                     struct vector addit = vMult(vAdd(mv,r.v),2);
                                     struct point wanderer = transloc(transloc(sc.p1,vMult(r.v,-1)),addit);
@@ -1067,7 +1229,7 @@ struct rayColl engage (struct ray r){ //ez végzi élesben a sugarak ütköztet�
     }
     return min;
 }
-    
+
 double calcLSAngle(struct point p){ //egy adott pontban számolja ki a fényforrás és az ugyanebben a pontban lévő objektum által bezárt szöget
     struct vector v = pToV(lightSource,p);
     struct ray tr;
@@ -1087,7 +1249,7 @@ void printPoint(struct point p){ //egy pontot ír ki (csak debugra jó)
 void printVector(struct vector v){ //egy vektort ír ki (csak debugra jó)
     printf("vector: %lf %lf %lf\n",v.A,v.B,v.C);
 }
-    
+
 struct vector crossProduct(struct vector v1, struct vector v2){ //vektoriális szorzat (egyéb indoklás nélkül)
     struct vector v;
     v.A = v1.B*v2.C-v1.C*v2.B;
@@ -1230,4 +1392,56 @@ struct point strCoor(char in[]){ //(x,y,z) alakú stringet konvertál pontra
     }
     return p;
 }
-                
+
+struct function3d strFunc3d(char in[]){ //{x(t),y(t),z(t)} alakú stringet konvertál 3d függvénnyé
+	struct function3d result;
+
+	int index = 0;
+	int start = 0;
+	while (in[index] != '{'){
+		index++;
+	}
+	start = index;
+	while (in[index] != ','){
+		index++;
+	}
+	int len = index-start;
+	char *x = (char*) malloc(len*sizeof(char));
+	int ptr = 0;
+	for (int i = start + 1; i < index; i++){
+		x[ptr++] = in[i];
+	}
+	x[len-1] = '\0';
+
+	index++;
+	start = index;
+	while (in[index] != ','){
+		index++;
+	}
+	len = index-start+1;
+	char *y = (char*) malloc(len*sizeof(char));
+	ptr = 0;
+	for (int i = start; i < index; i++){
+		y[ptr++] = in[i];
+	}
+	y[len-1] = '\0';
+
+	index++;
+	start = index;
+	while (in[index] != '}'){
+		index++;
+	}
+	len = index-start+1;
+	char *z = (char*) malloc(len*sizeof(char));
+	ptr = 0;
+	for (int i = start; i < index; i++){
+		z[ptr++] = in[i];
+	}
+	z[len-1] = '\0';
+
+	result.x.expression = x;
+	result.y.expression = y;
+	result.z.expression = z;
+
+	return result;
+}
